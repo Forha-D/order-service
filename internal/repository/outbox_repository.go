@@ -49,8 +49,44 @@ func (r *OutboxRepository) MarkAsSent(ctx context.Context, id string) error {
 		bson.M{"_id": id},
 		bson.M{
 			"$set": bson.M{
-				"status":       "SENT",
+				"status":       model.OutboxStatusSent,
 				"processed_at": time.Now(),
+			},
+		},
+	)
+
+	return err
+}
+
+func (r *OutboxRepository) MarkAsFailed(ctx context.Context, id string, errMsg string) error {
+
+	_, err := r.collection.UpdateOne(
+		ctx,
+		bson.M{
+			"_id": id,
+		},
+		bson.M{
+			"$inc": bson.M{
+				"retry_count": 1,
+			},
+			"$set": bson.M{
+				"last_error": errMsg,
+			},
+		},
+	)
+
+	return err
+
+}
+
+func (r *OutboxRepository) MarkAsDead(ctx context.Context, id string) error {
+
+	_, err := r.collection.UpdateOne(
+		ctx,
+		bson.M{"_id": id},
+		bson.M{
+			"$set": bson.M{
+				"status": model.OutboxStatusDead,
 			},
 		},
 	)
