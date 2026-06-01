@@ -2,7 +2,6 @@ package publisher
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 
 	"github.com/segmentio/kafka-go"
@@ -24,24 +23,18 @@ func NewKafkaPublisher(
 // generic reusable publish function
 
 // NExt: one publish method many topics — pass topic as argument or embed in event envelope
-func (p *KafkaPublisher) Publish(
+func (p *KafkaPublisher) PublishToTopic(
+	topic string,
 	key string,
-	event interface{},
-	// topic string,
+	payload []byte,
 ) error {
 
-	body, err := json.Marshal(event)
-
-	if err != nil {
-		return err
-	}
-
-	err = p.writer.WriteMessages(
+	err := p.writer.WriteMessages(
 		context.Background(),
 		kafka.Message{
+			Topic: topic,
 			Key:   []byte(key),
-			Value: body,
-			// Topic: topic,
+			Value: payload,
 		},
 	)
 
