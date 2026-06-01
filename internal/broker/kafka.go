@@ -17,13 +17,14 @@ func NewKafkaWriter(cfg *config.Config) *kafka.Writer {
 
 	return &kafka.Writer{
 
-		Addr:     kafka.TCP(cfg.KafkaBroker),
-		Topic:    "order.created",
+		Addr: kafka.TCP(cfg.KafkaBroker),
+		//Topic:    "order.created",
 		Balancer: &kafka.Hash{}, // same orderID → same partition
 
 		// delivery guarantee
 		RequiredAcks: kafka.RequireAll, // wait for all replicas
 		MaxAttempts:  3,                // retry 3x on failure
+		WriteTimeout: 10 * time.Second, // timeout for each write attempt
 		Async:        false,            // synchronous — safe
 
 		// batching for throughput
@@ -57,7 +58,7 @@ func NewKafkaReader(cfg *config.Config, groupID string) *kafka.Reader {
 	return kafka.NewReader(kafka.ReaderConfig{
 
 		Brokers: []string{cfg.KafkaBroker},
-		Topic:   "order.created",
+		//Topic:   "order.created",
 		GroupID: groupID, // horizontal scaling — partitions shared across instances
 
 		//batch size control

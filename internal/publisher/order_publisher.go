@@ -1,6 +1,8 @@
 package publisher
 
 import (
+	"encoding/json"
+	"log"
 	"time"
 
 	"order-service/internal/events"
@@ -44,9 +46,16 @@ func (p *KafkaPublisher) PublishOrderCreated(
 		Payload:        payload,
 	}
 
-	return p.Publish(
+	//convert to JSON (IMPORTANT)
+	body, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("[publisher] marshal failed: %v", err)
+		return err
+	}
+
+	return p.PublishToTopic(
+		"order.created",
 		order.ID.Hex(),
-		event,
-		// "order.created",
+		body,
 	)
 }
