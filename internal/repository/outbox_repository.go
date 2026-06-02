@@ -13,6 +13,12 @@ type OutboxRepository struct {
 	collection *mongo.Collection
 }
 
+func NewOutboxRepository(db *mongo.Database) *OutboxRepository {
+	return &OutboxRepository{
+		collection: db.Collection("outbox"),
+	}
+}
+
 func (r *OutboxRepository) Create(ctx context.Context, event *model.OutboxEvent) error {
 	_, err := r.collection.InsertOne(ctx, event)
 	return err
