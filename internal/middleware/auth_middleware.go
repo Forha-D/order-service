@@ -1,61 +1,63 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
+
+	"github.com/labstack/echo/v4"
 )
 
-type ContextKey string
+// type ContextKey string
 
-const (
-	UserIDKey ContextKey = "userID"
-	RoleKey   ContextKey = "role"
-)
+// const (
+// 	UserIDKey ContextKey = "userID"
+// 	RoleKey   ContextKey = "role"
+// )
 
-func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
 
 		// 1. Extract from Kong headers
-		userID := r.Header.Get("X-User-ID")
-		role := r.Header.Get("X-User-Role")
+		userID := c.Request().Header.Get("X-User-ID")
+		role := c.Request().Header.Get("X-User-Role")
 
-		// 2. Validate presence (critical)
+		// 2. Validate presence
 		if userID == "" {
-			http.Error(w, "missing user identity", http.StatusUnauthorized)
-			return
+			return c.JSON(http.StatusUnauthorized, map[string]string{
+				"error": "missing user identity",
+			})
 		}
 
 		if role == "" {
-			http.Error(w, "missing user role", http.StatusUnauthorized)
-			return
+			return c.JSON(http.StatusUnauthorized, map[string]string{
+				"error": "missing user role",
+			})
 		}
 
-		// 3. Inject into context
-		ctx := r.Context()
-		ctx = context.WithValue(ctx, UserIDKey, userID)
-		ctx = context.WithValue(ctx, RoleKey, role)
+		// 3. Store in Echo context
+		c.Set("userID", userID)
+		c.Set("role", role)
 
 		// 4. Continue request
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+		return next(c)
+	}
 }
 
-func GetUserID(r *http.Request) string {
-	val, ok := r.Context().Value(UserIDKey).(string)
-	if !ok {
+func GetUserID(c echo.Context) string {
+	val := c.Get("userID")
+	if val == nil {
 		return ""
 	}
-	return val
+	return val.(string)
 }
 
-func GetRole(r *http.Request) string {
-	val, ok := r.Context().Value(RoleKey).(string)
-	if !ok {
+func GetRole(c echo.Context) string {
+	val := c.Get("role")
+	if val == nil {
 		return ""
 	}
-	return val
+	return val.(string)
 }
 
-func RequireRole(r *http.Request, allowed string) bool {
-	return GetRole(r) == allowed
+func RequireRole(c echo.Context, allowed string) bool {
+	return GetRole(c) == allowed
 }
