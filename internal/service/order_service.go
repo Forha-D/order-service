@@ -17,14 +17,16 @@ import (
 )
 
 type OrderService struct {
-	orderRepo  *repository.OrderRepository
-	outboxRepo *repository.OutboxRepository
+	orderRepo       *repository.OrderRepository
+	outboxRepo      *repository.OutboxRepository
+	idempotencyRepo *repository.IdempotencyRepository
 }
 
-func NewOrderService(orderRepo *repository.OrderRepository, outboxRepo *repository.OutboxRepository) *OrderService {
+func NewOrderService(orderRepo *repository.OrderRepository, outboxRepo *repository.OutboxRepository, idempotencyRepo *repository.IdempotencyRepository) *OrderService {
 	return &OrderService{
-		orderRepo:  orderRepo,
-		outboxRepo: outboxRepo,
+		orderRepo:       orderRepo,
+		outboxRepo:      outboxRepo,
+		idempotencyRepo: idempotencyRepo,
 	}
 }
 
