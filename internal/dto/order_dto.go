@@ -1,8 +1,7 @@
 package dto
 
 type CreateOrderRequest struct {
-	Items          []CreateOrderItem `json:"items"`
-	IdempotencyKey string            `json:"-"` // set from header, not request body
+	Items []CreateOrderItem `json:"items"`
 }
 
 // Update status
