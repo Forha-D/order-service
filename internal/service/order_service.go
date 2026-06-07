@@ -4,18 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
+	"time"
 
-	// "log"
 	"order-service/internal/domain"
 	"order-service/internal/dto"
 	"order-service/internal/model"
 	"order-service/internal/repository"
-	"time"
+
+	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type OrderService struct {
-	orderRepo *repository.OrderRepository
-	// publisher publisher.EventPublisher
+	orderRepo  *repository.OrderRepository
 	outboxRepo *repository.OutboxRepository
 }
 
@@ -23,13 +25,12 @@ func NewOrderService(orderRepo *repository.OrderRepository, outboxRepo *reposito
 	return &OrderService{
 		orderRepo:  orderRepo,
 		outboxRepo: outboxRepo,
-		// publisher: publisher,
-
 	}
-
 }
 
 func (s *OrderService) CreateOrder(ctx context.Context, userID string, req dto.CreateOrderRequest) (*model.Order, error) {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
 
 	if len(req.Items) == 0 {
 		return nil, errors.New("items cannot be empty")
@@ -39,18 +40,14 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID string, req dto.C
 	var orderItems []model.OrderItem
 
 	for _, item := range req.Items {
-
 		if item.Quantity <= 0 {
 			return nil, errors.New("invalid quantity")
 		}
-
 		if item.Price <= 0 {
 			return nil, errors.New("invalid price")
 		}
 		totalAmount += float64(item.Quantity) * item.Price
-
 		orderItems = append(orderItems, model.OrderItem{
-
 			ProductID: item.ProductID,
 			Name:      item.Name,
 			Quantity:  item.Quantity,
@@ -58,15 +55,30 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID string, req dto.C
 		})
 	}
 
-	order := &model.Order{
-		UserID:      userID,
-		Items:       orderItems,
-		TotalAmount: totalAmount,
-		Status:      string(model.OrderPending),
+	// idempotency key — use provided or generate one
+	idempotencyKey := req.IdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = uuid.NewString()
 	}
 
-	err := s.orderRepo.Create(ctx, order)
+	// check for duplicate request
+	existingOrder, err := s.orderRepo.GetByIdempotencyKey(ctx, idempotencyKey)
 	if err != nil {
+		return nil, err // real DB error
+	}
+	if existingOrder != nil {
+		return existingOrder, nil // duplicate — return cached result
+	}
+
+	order := &model.Order{
+		UserID:         userID,
+		IdempotencyKey: idempotencyKey,
+		Items:          orderItems,
+		TotalAmount:    totalAmount,
+		Status:         string(model.OrderPending),
+	}
+
+	if err := s.orderRepo.Create(ctx, order); err != nil {
 		return nil, err
 	}
 
@@ -75,49 +87,46 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID string, req dto.C
 		return nil, err
 	}
 
-	outboxEvent := model.OutboxEvent{
+	outboxEvent := &model.OutboxEvent{
 		EventType: "order.created",
 		Payload:   string(orderBytes),
-		Status:    "PENDING",
+		Status:    model.OutboxStatusPending,
 		CreatedAt: time.Now(),
 	}
 
-	_ = s.outboxRepo.Create(ctx, &outboxEvent)
+	if err := s.outboxRepo.Create(ctx, outboxEvent); err != nil {
+		// don't fail the order — but this must be visible
+		log.Printf("[OrderService] failed to create outbox event for order %s: %v", order.ID.Hex(), err)
+	}
 
 	return order, nil
-
-	// err = s.publisher.PublishOrderCreated(order)
-	// if err != nil {
-	// 	// IMPORTANT: DO NOT FAIL ORDER CREATION
-	// 	// Kafka is eventual delivery system
-	// 	log.Printf("[OrderService] failed to publish order.created event: %v", err)
-	// }
-
-	// return order, nil
-
 }
 
 func (s *OrderService) GetOrderByID(ctx context.Context, id string) (*model.Order, error) {
-	return s.orderRepo.GetByID(ctx, id)
+	order, err := s.orderRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if order == nil {
+		return nil, mongo.ErrNoDocuments
+	}
+	return order, nil
 }
 
 func (s *OrderService) GetOrderByUserID(ctx context.Context, userID string) ([]model.Order, error) {
 	return s.orderRepo.GetUserByID(ctx, userID)
 }
 
-func (s *OrderService) UpdateOrderStatus(
-	ctx context.Context,
-	orderID string,
-	newStatus string,
-) error {
-
+func (s *OrderService) UpdateOrderStatus(ctx context.Context, orderID string, newStatus string) error {
 	order, err := s.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
 		return err
 	}
+	if order == nil {
+		return mongo.ErrNoDocuments
+	}
 
-	err = domain.CanTransition(string(order.Status), newStatus)
-	if err != nil {
+	if err := domain.CanTransition(string(order.Status), newStatus); err != nil {
 		return err
 	}
 

@@ -2,11 +2,13 @@ package worker
 
 import (
 	"context"
+	"log"
+	"time"
+
 	"order-service/internal/config"
 	"order-service/internal/model"
 	"order-service/internal/publisher"
 	"order-service/internal/repository"
-	"time"
 )
 
 const MaxRetryCount = 5
@@ -22,7 +24,6 @@ func NewOutboxWorker(
 	publisher *publisher.KafkaPublisher,
 	cfg *config.Config,
 ) *OutboxWorker {
-
 	return &OutboxWorker{
 		repo:      repo,
 		publisher: publisher,
@@ -31,69 +32,58 @@ func NewOutboxWorker(
 }
 
 func (w *OutboxWorker) Start(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	log.Println("[OutboxWorker] started")
 
 	for {
-		events, err := w.repo.GetPending(ctx)
-
-		if err != nil {
-			time.Sleep(5 * time.Second)
-			continue
+		select {
+		case <-ctx.Done():
+			log.Println("[OutboxWorker] shutting down")
+			return
+		case <-ticker.C:
+			w.poll(ctx)
 		}
-
-		for _, event := range events {
-
-			//err := w.publisher.Publish(event.EventType, event.Payload)
-			w.processEvent(
-				ctx,
-				event,
-			)
-		}
-
-		//w.repo.MarkAsSent(ctx, event.ID)
-		time.Sleep(2 * time.Second)
 	}
-
 }
 
-// retry logic
+func (w *OutboxWorker) poll(ctx context.Context) {
+	events, err := w.repo.GetPending(ctx)
+	if err != nil {
+		log.Printf("[OutboxWorker] failed to get pending events: %v", err)
+		return
+	}
+	for _, event := range events {
+		w.processEvent(ctx, event)
+	}
+}
 
-func (w *OutboxWorker) processEvent(
-	ctx context.Context,
-	event model.OutboxEvent,
-) {
-
-	// 1. retry limit check
+func (w *OutboxWorker) processEvent(ctx context.Context, event model.OutboxEvent) {
 	if event.RetryCount >= MaxRetryCount {
-
-		// 2. publish to DLQ BEFORE marking dead
 		dlqErr := w.publisher.PublishToTopic(
-			w.cfg.KafkaDLQTopic, // "order.dlq"
-			event.ID,
+			w.cfg.KafkaDLQTopic,
+			event.ID.Hex(),
 			[]byte(event.Payload),
 		)
-
 		if dlqErr != nil {
-			// if DLQ fails → keep retrying later
+			log.Printf("[OutboxWorker] failed to publish event %s to DLQ: %v", event.ID.Hex(), dlqErr)
 			return
 		}
-
-		// 3. mark as dead after successful DLQ publish
 		_ = w.repo.MarkAsDead(ctx, event.ID)
 		return
 	}
 
-	// 4. normal publish
 	err := w.publisher.PublishToTopic(
-		event.EventType, // topic like order.created
-		event.ID,
+		event.EventType,
+		event.ID.Hex(),
 		[]byte(event.Payload),
 	)
-
 	if err != nil {
+		log.Printf("[OutboxWorker] failed to publish event %s: %v", event.ID.Hex(), err)
 		_ = w.repo.MarkAsFailed(ctx, event.ID, err.Error())
 		return
 	}
 
-	// 5. success
 	_ = w.repo.MarkAsSent(ctx, event.ID)
 }

@@ -38,6 +38,16 @@ func main() {
 	orderRepo := repository.NewOrderRepository(db)
 	outboxRepo := repository.NewOutboxRepository(db)
 
+	// ── Ensure MongoDB indexes ─────────────────────────────────
+	// ── Cancellable context for background workers ─────────────
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := orderRepo.EnsureIndexes(ctx); err != nil {
+		log.Fatalf("failed to ensure order indexes: %v", err)
+	}
+	log.Println("mongodb indexes ensured")
+
 	// Services
 	orderService := service.NewOrderService(orderRepo, outboxRepo)
 
@@ -68,7 +78,7 @@ func main() {
 	kafkaPublisher := publisher.NewKafkaPublisher(kafkaWriter)
 
 	outboxWorker := worker.NewOutboxWorker(outboxRepo, kafkaPublisher, cfg)
-	go outboxWorker.Start(context.Background())
+	go outboxWorker.Start(ctx)
 
 	// ── Start health server in background ─────────────────────
 	go func() {

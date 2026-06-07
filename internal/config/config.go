@@ -18,7 +18,7 @@ type Config struct {
 	KafkaDLQTopic   string
 	KafkaTLSEnabled bool
 	AppVersion      string
-	HealthPort      string // separate port for health server
+	HealthPort      string
 }
 
 func LoadConfig() *Config {
