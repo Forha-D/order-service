@@ -17,6 +17,8 @@ type Config struct {
 	KafkaBroker     string
 	KafkaDLQTopic   string
 	KafkaTLSEnabled bool
+	AppVersion      string
+	HealthPort      string // separate port for health server
 }
 
 func LoadConfig() *Config {
@@ -35,6 +37,8 @@ func LoadConfig() *Config {
 		Environment:   getEnv("ENVIRONMENT", "development"),
 		KafkaBroker:   getEnv("KAFKA_BROKER", "localhost:9092"),
 		KafkaDLQTopic: getEnv("KAFKA_DLQ_TOPIC", "order.dlq"),
+		AppVersion:    getEnv("APP_VERSION", "1.0.0"),
+		HealthPort:    getEnv("HEALTH_PORT", "9090"),
 	}
 }
 

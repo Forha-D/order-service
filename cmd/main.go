@@ -1,57 +1,84 @@
 package main
 
 import (
-	"order-service/internal/broker"
-	"order-service/internal/config"
-
+	"context"
 	"log"
 
-	"github.com/labstack/echo/v4/middleware"
+	"order-service/internal/broker"
+	"order-service/internal/checker"
+	"order-service/internal/config"
+	"order-service/internal/handler"
+	"order-service/internal/publisher"
+	"order-service/internal/repository"
+	"order-service/internal/routes"
+	"order-service/internal/service"
+	"order-service/internal/worker"
 
 	"github.com/labstack/echo/v4"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func main() {
-
-	// Load configuration
+	// Load Config
 	cfg := config.LoadConfig()
 
-	// create writer
+	// MongoDB connection
+	client, err := mongo.Connect(
+		options.Client().ApplyURI(cfg.MongoURI),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// DB instance
+	db := client.Database(cfg.DatabaseName)
+
+	// Repositories
+	orderRepo := repository.NewOrderRepository(db)
+	outboxRepo := repository.NewOutboxRepository(db)
+
+	// Services
+	orderService := service.NewOrderService(orderRepo, outboxRepo)
+
+	// Handlers
+	orderHandler := handler.NewOrderHandler(orderService)
+
+	// ── App server (port 8080) — Kong routes this ──────────────
+	app := echo.New()
+	app.HideBanner = true
+	routes.RegisterOrderRoutes(app, orderHandler)
+
+	// ── Health server (port 9090) — K8s direct, Kong never sees this ──
+	healthServer := echo.New()
+	healthServer.HideBanner = true
+
+	healthHandler := handler.NewHealthHandler(
+		cfg.AppVersion,
+		cfg.AppName,
+		checker.NewMongoChecker(client),
+		checker.NewKafkaChecker(cfg.KafkaBroker),
+	)
+	healthHandler.RegisterRoutes(healthServer) // internal group for detailed health, separate from public probes
+
+	// Kafka
 	kafkaWriter := broker.NewKafkaWriter(cfg)
 	defer broker.CloseWriter(kafkaWriter)
 
-	// create reader
-	kafkaReader := broker.NewKafkaReader(cfg, "order-service-group")
-	defer broker.CloseReader(kafkaReader)
+	kafkaPublisher := publisher.NewKafkaPublisher(kafkaWriter)
 
-	//  create echo instance
-	e := echo.New()
+	outboxWorker := worker.NewOutboxWorker(outboxRepo, kafkaPublisher, cfg)
+	go outboxWorker.Start(context.Background())
 
-	// Middleware
-	e.Use(middleware.RequestLogger())
-	e.Use(middleware.Recover())
+	// ── Start health server in background ─────────────────────
+	go func() {
+		log.Printf("health server starting on :%s", cfg.HealthPort)
+		if err := healthServer.Start(":" + cfg.HealthPort); err != nil {
+			healthServer.Logger.Fatal(err)
+		}
+	}()
 
-	// allow frontend to call your API
-
-	// e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-	// 	AllowOrigins: []string{"http://localhost:3000"},
-	// 	AllowMethods: []string{"GET", "POST", "PATCH", "PUT", "DELETE"},
-	// 	AllowHeaders: []string{"Authorization", "Content-Type"},
-	// }))
-
-	// health checl endpoint
-	e.GET("/health", func(c echo.Context) error {
-
-		return c.JSON(200, map[string]string{
-
-			"status":  "healthy",
-			"service": cfg.AppName,
-		})
-	})
-	// start server
-
-	log.Printf("%s running on port %s", cfg.AppName, cfg.Port)
-
-	e.Logger.Fatal(e.Start(":" + cfg.Port))
-
+	// ── Start app server (blocking) ───────────────────────────
+	log.Printf("starting %s on port %s", cfg.AppName, cfg.Port)
+	app.Logger.Fatal(app.Start(":" + cfg.Port))
 }
