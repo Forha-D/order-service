@@ -141,7 +141,6 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID string, req dto.C
 
 	if err := s.outboxRepo.Create(ctx, outboxEvent); err != nil {
 		_ = s.idempotencyRepo.MarkFailed(ctx, scopedKey, "outbox creation failed")
-		log.Printf("outbox failed: %v", err)
 	}
 
 	// STEP 8: mark idempotency COMPLETE ONCE
