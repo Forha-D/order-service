@@ -50,6 +50,26 @@ func retryOnTransientFailure(ctx context.Context, fn func(context.Context) error
 	return err
 }
 
+func (r *OrderRepository) EnsureIndexes(ctx context.Context) error {
+	indexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "user_id", Value: 1}},
+			Options: options.Index().SetName("idx_orders_user_id"),
+		},
+		{
+			Keys:    bson.D{{Key: "status", Value: 1}},
+			Options: options.Index().SetName("idx_orders_status"),
+		},
+		{
+			Keys:    bson.D{{Key: "created_at", Value: -1}},
+			Options: options.Index().SetName("idx_orders_created_at"),
+		},
+	}
+
+	_, err := r.collection.Indexes().CreateMany(ctx, indexes)
+	return err
+}
+
 func (r *OrderRepository) Create(ctx context.Context, order *model.Order) error {
 	ctx, cancel := withDatabaseContext(ctx)
 	defer cancel()

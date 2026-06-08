@@ -25,12 +25,12 @@ type OrderItem struct {
 }
 
 type Order struct {
-	ID             primitive.ObjectID `json:"id"              bson:"_id,omitempty"`
-	UserID         string             `json:"user_id"         bson:"user_id"`
-	IdempotencyKey string             `json:"idempotency_key" bson:"idempotency_key,omitempty"`
-	Items          []OrderItem        `json:"items"           bson:"items"`
-	TotalAmount    float64            `json:"total_amount"    bson:"total_amount"`
-	Status         string             `json:"status"          bson:"status"`
-	CreatedAt      time.Time          `json:"created_at"      bson:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"      bson:"updated_at"`
+	ID     primitive.ObjectID `json:"id"                 bson:"_id,omitempty"`
+	UserID string             `json:"user_id"            bson:"user_id"`
+	// IdempotencyKey string             `json:"idempotency_key"    bson:"idempotency_key,omitempty"`
+	Items       []OrderItem `json:"items"              bson:"items"`
+	TotalAmount float64     `json:"total_amount"       bson:"total_amount"`
+	Status      string      `json:"status"             bson:"status"`
+	CreatedAt   time.Time   `json:"created_at"         bson:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"         bson:"updated_at"`
 }
