@@ -51,6 +51,26 @@ func retryOnTransientFailure(ctx context.Context, fn func(context.Context) error
 	return err
 }
 
+func (r *OrderRepository) EnsureIndexes(ctx context.Context) error {
+	indexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "user_id", Value: 1}},
+			Options: options.Index().SetName("idx_orders_user_id"),
+		},
+		{
+			Keys:    bson.D{{Key: "status", Value: 1}},
+			Options: options.Index().SetName("idx_orders_status"),
+		},
+		{
+			Keys:    bson.D{{Key: "created_at", Value: -1}},
+			Options: options.Index().SetName("idx_orders_created_at"),
+		},
+	}
+
+	_, err := r.collection.Indexes().CreateMany(ctx, indexes)
+	return err
+}
+
 func (r *OrderRepository) Create(ctx context.Context, order *model.Order) error {
 	ctx, cancel := withDatabaseContext(ctx)
 	defer cancel()
@@ -134,48 +154,4 @@ func (r *OrderRepository) UpdateStatus(ctx context.Context, orderID string, stat
 		)
 		return err
 	})
-}
-
-func (r *OrderRepository) GetByIdempotencyKey(ctx context.Context, key string) (*model.Order, error) {
-	ctx, cancel := withDatabaseContext(ctx)
-	defer cancel()
-
-	var order model.Order
-	err := retryOnTransientFailure(ctx, func(ctx context.Context) error {
-		return r.collection.FindOne(ctx, bson.M{"idempotency_key": key}).Decode(&order)
-	})
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		return nil, nil // not found is not an error
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &order, nil
-}
-
-// internal/repository/order_repository.go
-func (r *OrderRepository) EnsureIndexes(ctx context.Context) error {
-	indexes := []mongo.IndexModel{
-		{
-			Keys: bson.D{{Key: "idempotency_key", Value: 1}},
-			Options: options.Index().
-				SetUnique(true).
-				SetSparse(true).
-				SetName("idx_idempotency_key"),
-		},
-		{
-			Keys: bson.D{{Key: "idempotency_expires_at", Value: 1}},
-			Options: options.Index().
-				SetExpireAfterSeconds(0).
-				SetSparse(true).
-				SetName("idx_idempotency_ttl"),
-		},
-		{
-			Keys:    bson.D{{Key: "user_id", Value: 1}},
-			Options: options.Index().SetName("idx_user_id"),
-		},
-	}
-
-	_, err := r.collection.Indexes().CreateMany(ctx, indexes)
-	return err
 }

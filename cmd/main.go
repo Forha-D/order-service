@@ -37,6 +37,7 @@ func main() {
 	// Repositories
 	orderRepo := repository.NewOrderRepository(db)
 	outboxRepo := repository.NewOutboxRepository(db)
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
 
 	// ── Ensure MongoDB indexes ─────────────────────────────────
 	// ── Cancellable context for background workers ─────────────
@@ -46,10 +47,13 @@ func main() {
 	if err := orderRepo.EnsureIndexes(ctx); err != nil {
 		log.Fatalf("failed to ensure order indexes: %v", err)
 	}
+	if err := idempotencyRepo.EnsureIndexes(ctx); err != nil {
+		log.Fatalf("failed to ensure idempotency indexes: %v", err)
+	}
 	log.Println("mongodb indexes ensured")
 
 	// Services
-	orderService := service.NewOrderService(orderRepo, outboxRepo)
+	orderService := service.NewOrderService(orderRepo, outboxRepo, idempotencyRepo)
 
 	// Handlers
 	orderHandler := handler.NewOrderHandler(orderService)
